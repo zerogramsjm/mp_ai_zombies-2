@@ -374,7 +374,7 @@ bot_zombie_vocals()
         self playSound( "attack_vocals" );
 
         // Wait a random duration before groaning again (adjust times to fit your pacing)
-        wait RandomFloatRange( 2.5, 5.0 );
+        wait RandomFloatRange( 1.5, 3.0 );
     }
 }
 
@@ -1457,11 +1457,14 @@ aim_loop()
                 
                 // Keep bot looking directly at the player without stopping movement
                 self thread bot_lookat( aimpos, aimspeed );
+
+				// OG knife distance = 16384;
+				level.jevonKnifeDistance = 1000;
                 
-                // Immediately trigger knife if within melee distance
-                if ( dist <= level.bots_maxknifedistance )
+                // Trigger instant melee kill on touch
+                if ( dist <= level.jevonKnifeDistance && isAlive( target ) )
                 {
-                    self thread knife( target );
+                    self thread zombie_kill_player( target );
                 }
                 return;
             }
@@ -1478,6 +1481,26 @@ aim_loop()
     if ( isdefined( self.bot.towards_goal ) )
     {
         self thread bot_lookat( self.bot.towards_goal + ( 0, 0, self getEyeHeight() ), aimspeed );
+    }
+}
+
+// Dedicated helper to ensure death triggers properly without script lockup
+zombie_kill_player( target )
+{
+    if ( isdefined( target.being_killed_by_zombie ) && target.being_killed_by_zombie )
+        return;
+
+    target.being_killed_by_zombie = true;
+
+	self playSound( "attack_vocals" );
+
+    // Direct Engine Death
+    target suicide();
+
+    wait 1.0;
+    if ( isdefined( target ) )
+    {
+        target.being_killed_by_zombie = false;
     }
 }
 

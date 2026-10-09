@@ -13,7 +13,6 @@ precache_zombie_models()
     precacheModel("char_ger_ansel_body_zomb");
     precacheModel("char_ger_honorgd_body2_1");
     precacheModel("char_ger_honorgd_body1_1");
-	precacheModel("char_ger_zombie_body");
 
     // Zombie Heads - Series 1
     precacheModel("char_ger_honorgd_zombiehead1_1");
@@ -53,10 +52,11 @@ precache_zombie_models()
 
 init_zombie_health_scaling()
 {
-    level.zombie_base_health = 25; // Starting health on match start
-    level.zombie_max_health  = 400; // Hard cap so they don't become unkillable
-    level.zombie_health_inc  = 25;   // Health added per interval
-    level.zombie_scale_time  = 60;   // Increase health every 60 seconds
+    level.zombie_level       = 1;   // Starting level
+    level.zombie_base_health = 50;  // Starting health on match start
+    level.zombie_max_health  = 250; // Hard cap so they don't become unkillable
+    level.zombie_health_inc  = 25;  // Health added per interval
+    level.zombie_scale_time  = 60;  // Increase health every 60 seconds
 
     level thread monitor_zombie_health_scaling();
 }
@@ -69,13 +69,28 @@ monitor_zombie_health_scaling()
     {
         wait level.zombie_scale_time;
 
+        level.zombie_level++;
+
         if ( level.zombie_base_health < level.zombie_max_health )
         {
             level.zombie_base_health += level.zombie_health_inc;
-            
-            // Debug notify (Optional)
-            iPrintLn( "^7Zombies evolved! Health is now: " + level.zombie_base_health );
+
+            if ( level.zombie_base_health >= level.zombie_max_health )
+            {
+                level.zombie_base_health = level.zombie_max_health;
+                iPrintLn( "^1SURVIVAL MODE - Level: " + level.zombie_level );
+            }
+            else
+            {
+                iPrintLn( "^7Level: " + level.zombie_level );
+            }
         }
+        else
+        {
+            iPrintLn( "^7Level: " + level.zombie_level );
+        }
+
+        level playSoundOnPlayers( "round_over" );
     }
 }
 
@@ -1155,7 +1170,6 @@ onPlayerSpawned()
         }
     }
 }
-
 monitor_zombie_kills()
 {
     self endon( "disconnect" );
@@ -1170,11 +1184,15 @@ monitor_zombie_kills()
 
         self.zombie_streak_kills++;
 
-        // Reward player every 10 kills
-        if ( self.zombie_streak_kills >= 5 )
+        // 10 Kill Reward
+        if ( self.zombie_streak_kills == 5 )
         {
-            self.zombie_streak_kills = 0;
             self thread give_max_ammo_reward();
+        }
+        // 20 Kill Reward
+        else if ( self.zombie_streak_kills >= 5 )
+        {
+            self.zombie_streak_kills = 0; // Reset streak counter back to 0
         }
     }
 }
@@ -1189,53 +1207,52 @@ give_max_ammo_reward()
     {
         weapon = weapons[i];
         
-        // Skip offhand weapons/grenades if desired, or leave to refill everything
         self giveMaxAmmo( weapon );
         self setWeaponAmmoClip( weapon, weaponClipSize( weapon ) );
     }
 
     // 2. Audio feedback
-    self playLocalSound( "mp_level_up" ); // Standard stock MP level up cue
+    self playLocalSound( "ma_vox" );
 
     // 3. On-screen HUD notification
-    self thread show_max_ammo_text();
+    self thread show_streak_hud_text( "5 Kill Streak - MAX AMMO" );
 }
 
-show_max_ammo_text()
+show_streak_hud_text( text )
 {
     self endon( "disconnect" );
 
-    if ( isDefined( self.max_ammo_hud ) )
+    if ( isDefined( self.streak_hud ) )
     {
-        self.max_ammo_hud destroy();
+        self.streak_hud destroy();
     }
 
-self.max_ammo_hud = newClientHudElem( self );
-    self.max_ammo_hud.elemType = "font";
-    self.max_ammo_hud.font = "default";
-    self.max_ammo_hud.fontScale = 1.2; // Reduced from 1.8 for smaller text
-    self.max_ammo_hud.x = 0;
-    self.max_ammo_hud.y = -50;
-    self.max_ammo_hud.alignX = "center";
-    self.max_ammo_hud.alignY = "middle";
-    self.max_ammo_hud.horzAlign = "center";
-    self.max_ammo_hud.vertAlign = "middle";
-    self.max_ammo_hud.color = ( 1, 1, 1 ); // Pure White
-    self.max_ammo_hud.glowColor = ( 0.0, 0.0, 0.0 );
-    self.max_ammo_hud.glowAlpha = 0.0;
-    self.max_ammo_hud setText( "Kill Streak\nMAX AMMO!" );
+    self.streak_hud = newClientHudElem( self );
+    self.streak_hud.elemType = "font";
+    self.streak_hud.font = "default";
+    self.streak_hud.fontScale = 1.2;
+    self.streak_hud.x = 0;
+    self.streak_hud.y = -50;
+    self.streak_hud.alignX = "center";
+    self.streak_hud.alignY = "middle";
+    self.streak_hud.horzAlign = "center";
+    self.streak_hud.vertAlign = "middle";
+    self.streak_hud.color = ( 1, 1, 1 ); // Pure White
+    self.streak_hud.glowColor = ( 0.0, 0.0, 0.0 );
+    self.streak_hud.glowAlpha = 0.0;
+    self.streak_hud setText( text );
 
-    // Fade out effect
-    self.max_ammo_hud fadeOverTime( 0.5 );
-    self.max_ammo_hud.alpha = 1;
+    // Fade in / out effect
+    self.streak_hud fadeOverTime( 0.5 );
+    self.streak_hud.alpha = 1;
     wait 1.5;
-    self.max_ammo_hud fadeOverTime( 1.0 );
-    self.max_ammo_hud.alpha = 0;
+    self.streak_hud fadeOverTime( 1.0 );
+    self.streak_hud.alpha = 0;
     wait 1.0;
 
-    if ( isDefined( self.max_ammo_hud ) )
+    if ( isDefined( self.streak_hud ) )
     {
-        self.max_ammo_hud destroy();
+        self.streak_hud destroy();
     }
 }
 
@@ -1246,7 +1263,7 @@ play_spawn_introSound()
 
     // Wait 2 frames for audio client initialization
     wait 0.1;
-
+	self playLocalSound( "amb_spooky" );
     self playLocalSound( "laugh_child" );
 }
 
@@ -1262,7 +1279,8 @@ set_random_zombie_model()
 
     // Select a random body model
     chosen_body = german_bodies[ randomInt( german_bodies.size ) ];
-    self setModel( chosen_body );
+
+	self setModel( chosen_body );
 
 }
 
@@ -1308,30 +1326,20 @@ apply_zombie_bot_setup()
     heads[23] = "char_ger_honorgd_zombiehead4_6";
 
     // Select a random head from the updated array
-    random_head = heads[ randomInt( heads.size ) ];
 
-	printf("adding zombie head" + random_head);
 
     // Clear body and assign Ansel zombie torso
     self detachAll();
     set_random_zombie_model();
+    random_head = heads[ randomInt( heads.size ) ];
+	printf("adding zombie head" + random_head);
 
     attach_tag = "j_spine4";
     self attach( random_head, attach_tag, true );
 
-    // 3. Give Colt 45 & switch to it
-    self giveWeapon("colt45_mp");
-    self setSpawnWeapon("colt45_mp");
-    self switchToWeapon("colt45_mp");
-
-    // Allow engine 1 frame to mount model before stripping gun mesh
-    wait 0.05;
-
-    current_gun = self getCurrentWeapon();
-    if ( current_gun != "none" && isDefined( getWeaponModel( current_gun ) ) )
-    {
-        self detach( getWeaponModel( current_gun ), "tag_weapon_right" );
-    }
+	self takeAllWeapons();
+    self setSpawnWeapon("none");
+    self switchToWeapon("none");
 
     // 4. Randomized movement speed scale (creates fast runners vs lumbering zombies)
     // self setMoveSpeedScale( 0.35, 0.7 );
@@ -1348,6 +1356,19 @@ apply_zombie_bot_setup()
     // 5. Start pitch lock, lurching, and stumble behavior loops
     self thread freeze_zombie_pitch();
     self thread zombie_lurch_think();
+	self thread play_sound_on_death();
+}
+
+play_sound_on_death()
+{
+    // Wait until this specific zombie entity dies
+    self waittill( "death" );
+
+    // Option A: Play sound 3D at the position where the zombie died
+    level playSoundOnPlayers( "death_vocals", self.origin );
+
+    // Option B: Play sound globally for all players
+    // level playSoundOnPlayers( "arcademode_checkpoint" );
 }
 
 freeze_zombie_pitch()
