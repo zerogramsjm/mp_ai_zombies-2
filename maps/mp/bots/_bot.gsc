@@ -48,6 +48,17 @@ precache_zombie_models()
 
     // Ansel Head
     precacheModel("char_ger_ansel_head_zomb");
+
+	init_zombie_fx();
+
+}
+
+init_zombie_fx()
+{
+    level._effect[ "eye_glow" ]                 = loadfx( "misc/fx_zombie_eye_single" );
+	level._effect[ "bloodsplat" ]                 = loadfx( "misc/fx_zombie_bloodsplat" );
+    level._effect[ "character_fire_flame_smal" ] = loadfx( "env/fire/fx_fire_player_sm" );
+	level._effect[ "character_fire_death_torso"] = loadfx( "env/fire/fx_fire_player_torso" );
 }
 
 init_zombie_health_scaling()
@@ -1155,6 +1166,7 @@ onPlayerSpawned()
         if ( self is_bot() )
         {
             self thread apply_zombie_bot_setup();
+            self thread monitor_zombie_damage(); // Monitor damage on bot from birth
         }
         else
         {
@@ -1170,6 +1182,7 @@ onPlayerSpawned()
         }
     }
 }
+
 monitor_zombie_kills()
 {
     self endon( "disconnect" );
@@ -1184,18 +1197,137 @@ monitor_zombie_kills()
 
         self.zombie_streak_kills++;
 
-        // 10 Kill Reward
+        // 5 Kill Reward - Max Ammo
         if ( self.zombie_streak_kills == 5 )
         {
             self thread give_max_ammo_reward();
         }
-        // 20 Kill Reward
-        else if ( self.zombie_streak_kills >= 5 )
+        // 10 Kill Reward - Insta-Kill (30 Seconds)
+        else if ( self.zombie_streak_kills == 10 )
         {
-            self.zombie_streak_kills = 0; // Reset streak counter back to 0
+            self thread activate_instakill_reward();
+        }
+        // Reset streak counter after 10 kills
+        else if ( self.zombie_streak_kills > 10 )
+        {
+            self.zombie_streak_kills = 0;
         }
     }
 }
+
+// -------------------------------------------------------------------
+// INSTA-KILL LOGIC & HUD TIMER
+// -------------------------------------------------------------------
+
+activate_instakill_reward()
+{
+    self endon( "disconnect" );
+
+    // Enable global instakill flag
+    level.instakill_active = true;
+
+    // Audio & HUD Announcements
+    self playLocalSound( "insta_vox" ); // Replace with your instakill sound alias
+    self thread show_streak_hud_text( "10 Kill Streak - INSTA-KILL!" );
+
+    // Start or restart HUD timer display
+    self thread start_instakill_timer_hud( 30 );
+
+    // Run 30-second duration timer
+    wait 30.0;
+
+    // Disable global instakill flag
+    level.instakill_active = false;
+}
+
+// Threaded on EVERY zombie bot when spawned
+monitor_zombie_damage()
+{
+    self endon( "disconnect" );
+    self endon( "death" );
+
+    for ( ;; )
+    {
+        self waittill( "damage", amount, attacker, direction_vec, point, type, modelName, tagName, partName, iDFlags, weapon );
+
+        // If Insta-Kill is active and the damage was dealt by a player
+        if ( isDefined( level.instakill_active ) && level.instakill_active )
+        {
+            if ( isDefined( attacker ) && isPlayer( attacker ) && attacker != self )
+            {
+                // Deliver instant death using the attacker's weapon credit
+                self finishPlayerDamage( attacker, attacker, 99999, 0, type, weapon, point, direction_vec, "none", 0 );
+
+                if ( isAlive( self ) )
+                {
+                    self suicide();
+                }
+
+                break;
+            }
+        }
+    }
+}
+
+// HUD Element for the 30-Second On-Screen Countdown
+start_instakill_timer_hud( duration )
+{
+    self endon( "disconnect" );
+
+    // Clean up any existing HUD elements if active
+    if ( isDefined( self.instakill_label_hud ) )
+    {
+        self.instakill_label_hud destroy();
+    }
+    if ( isDefined( self.instakill_timer_hud ) )
+    {
+        self.instakill_timer_hud destroy();
+    }
+
+    // 1. Text Label HUD ("INSTAKILL: ")
+    self.instakill_label_hud = newClientHudElem( self );
+    self.instakill_label_hud.x = -25;
+    self.instakill_label_hud.y = -60;
+    self.instakill_label_hud.alignX = "center";
+    self.instakill_label_hud.alignY = "bottom";
+    self.instakill_label_hud.horzAlign = "center";
+    self.instakill_label_hud.vertAlign = "bottom";
+    self.instakill_label_hud.font = "objective";
+    self.instakill_label_hud.fontScale = 1.6;
+    self.instakill_label_hud.color = ( 1, 1, 1 ); // Pure White
+    self.instakill_label_hud.alpha = 1;
+    self.instakill_label_hud setText( "INSTAKILL: " );
+
+    // 2. Numerical Timer HUD
+    self.instakill_timer_hud = newClientHudElem( self );
+    self.instakill_timer_hud.x = 35;
+    self.instakill_timer_hud.y = -60;
+    self.instakill_timer_hud.alignX = "center";
+    self.instakill_timer_hud.alignY = "bottom";
+    self.instakill_timer_hud.horzAlign = "center";
+    self.instakill_timer_hud.vertAlign = "bottom";
+    self.instakill_timer_hud.font = "objective";
+    self.instakill_timer_hud.fontScale = 1.6;
+    self.instakill_timer_hud.color = ( 1, 1, 1 ); // Pure White
+    self.instakill_timer_hud.alpha = 1;
+    self.instakill_timer_hud setTimer( duration );
+
+    // Clean up both HUD elements after the duration expires
+    wait duration;
+
+    if ( isDefined( self.instakill_label_hud ) )
+    {
+        self.instakill_label_hud destroy();
+    }
+    if ( isDefined( self.instakill_timer_hud ) )
+    {
+        self.instakill_timer_hud destroy();
+    }
+}
+
+// -------------------------------------------------------------------
+// OTHER REWARDS
+// -------------------------------------------------------------------
 
 give_max_ammo_reward()
 {
@@ -1206,7 +1338,7 @@ give_max_ammo_reward()
     for ( i = 0; i < weapons.size; i++ )
     {
         weapon = weapons[i];
-        
+
         self giveMaxAmmo( weapon );
         self setWeaponAmmoClip( weapon, weaponClipSize( weapon ) );
     }
@@ -1337,6 +1469,8 @@ apply_zombie_bot_setup()
     attach_tag = "j_spine4";
     self attach( random_head, attach_tag, true );
 
+	self starttanning();
+
 	self takeAllWeapons();
     self setSpawnWeapon("none");
     self switchToWeapon("none");
@@ -1352,11 +1486,34 @@ apply_zombie_bot_setup()
     // Assign current scaled health to bot
     self.maxhealth = level.zombie_base_health;
     self.health    = level.zombie_base_health;
+
+	self.takedamage = true;
     
     // 5. Start pitch lock, lurching, and stumble behavior loops
     self thread freeze_zombie_pitch();
     self thread zombie_lurch_think();
 	self thread play_sound_on_death();
+	self thread apply_zombie_visual_effects();
+}
+
+// Dedicated helper to play bloody drip / burnt smoke FX on the body
+apply_zombie_visual_effects()
+{
+    self endon( "disconnect" );
+    self endon( "death" );
+
+    // 1. Classic Blue Eye Glow
+    if ( isDefined( level._effect[ "eye_glow" ] ) )
+    {
+        playFxOnTag( level._effect[ "eye_glow" ], self, "j_eyeball_le" );
+    }
+
+    // 2. Bloody / Gore Splatter Effect on Torso
+    if ( isDefined( level._effect[ "bloodsplat" ] ) )
+    {
+        playFxOnTag( level._effect[ "bloodsplat" ], self, "j_spine4" );
+    }
+
 }
 
 play_sound_on_death()
