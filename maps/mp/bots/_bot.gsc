@@ -65,9 +65,9 @@ init_zombie_health_scaling()
 {
     level.zombie_level       = 1;   // Starting level
     level.zombie_base_health = 50;  // Starting health on match start
-    level.zombie_max_health  = 250; // Hard cap so they don't become unkillable
+    level.zombie_max_health  = 300; // Hard cap so they don't become unkillable
     level.zombie_health_inc  = 25;  // Health added per interval
-    level.zombie_scale_time  = 60;  // Increase health every 60 seconds
+    level.zombie_scale_time  = 90;  // Increase health every 60 seconds
 
     level thread monitor_zombie_health_scaling();
 }
@@ -89,7 +89,12 @@ monitor_zombie_health_scaling()
             if ( level.zombie_base_health >= level.zombie_max_health )
             {
                 level.zombie_base_health = level.zombie_max_health;
+                level.zombies_on_fire = true; // Enable fire flag globally
+
                 iPrintLn( "^1SURVIVAL MODE - Level: " + level.zombie_level );
+                
+                // Ignites any zombies currently alive on the map
+                level thread ignite_all_active_zombies();
             }
             else
             {
@@ -98,7 +103,8 @@ monitor_zombie_health_scaling()
         }
         else
         {
-            iPrintLn( "^7Level: " + level.zombie_level );
+            level.zombies_on_fire = true; // Keep flag active
+            iPrintLn( "^1SURVIVAL MODE - Level: " + level.zombie_level );
         }
 
         level playSoundOnPlayers( "round_over" );
@@ -1494,6 +1500,48 @@ apply_zombie_bot_setup()
     self thread zombie_lurch_think();
 	self thread play_sound_on_death();
 	self thread apply_zombie_visual_effects();
+
+	// Check if game is in Survival Mode / Round 9 fire mode
+    if ( isDefined( level.zombies_on_fire ) && level.zombies_on_fire )
+    {
+        self thread attach_zombie_fire_fx();
+    }
+
+}
+
+// Thread to ignite bots already alive when Round 9 triggers
+ignite_all_active_zombies()
+{
+    bots = getentarray( "player", "classname" );
+    for ( i = 0; i < bots.size; i++ )
+    {
+        if ( isDefined( bots[i] ) && bots[i] is_bot() && isAlive( bots[i] ) )
+        {
+            bots[i] thread attach_zombie_fire_fx();
+        }
+    }
+}
+
+// Continuous fire FX thread attached to the zombie entity
+attach_zombie_fire_fx()
+{
+    self endon( "death" );
+    self endon( "disconnect" );
+
+    if ( isDefined( self.has_fire_fx ) && self.has_fire_fx )
+        return;
+
+    self.has_fire_fx = true;
+
+    while ( isAlive( self ) )
+    {
+        if ( isDefined( level._effect[ "character_fire_death_torso" ] ) )
+        {
+            // Plays fire FX on torso (tag_origin or j_spine4)
+            playFxOnTag( level._effect[ "character_fire_death_torso" ], self, "j_spine4" );
+        }
+        wait 0.2; // Interval matches non-looping FX duration
+    }
 }
 
 // Dedicated helper to play bloody drip / burnt smoke FX on the body
