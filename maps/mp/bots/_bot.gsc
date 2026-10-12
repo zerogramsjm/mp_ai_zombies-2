@@ -60,14 +60,19 @@ init_zombie_fx()
     level._effect[ "character_fire_flame_smal" ] = loadfx( "env/fire/fx_fire_player_sm" );
 	level._effect[ "character_fire_death_torso"] = loadfx( "env/fire/fx_fire_player_torso" );
 }
-
 init_zombie_health_scaling()
 {
     level.zombie_level       = 1;   // Starting level
-    level.zombie_base_health = 50;  // Starting health on match start
-    level.zombie_max_health  = 300; // Hard cap so they don't become unkillable
-    level.zombie_health_inc  = 25;  // Health added per interval
-    level.zombie_scale_time  = 90;  // Increase health every 60 seconds
+    level.zombie_base_health = 75;  // Starting health on match start
+    level.zombie_max_health  = 250; // Hard cap so they don't become unkillable
+    level.zombie_health_inc  = 18;  // Health added per interval (+18 per level)
+    level.zombie_scale_time  = 90;  // Increase health every 90 seconds
+
+    // Speed Scaling Setup (1.0 = Default MP player walk/jog speed)
+    level.zombie_base_speed  = 0.60; // Slow shuffle on Level 1 (60% speed)
+    level.zombie_speed_inc   = 0.08; // +8% movement speed per level
+    level.zombie_max_speed   = 1.40; // Max sprint speed (140% speed)
+    level.zombie_move_speed  = level.zombie_base_speed;
 
     level thread monitor_zombie_health_scaling();
 }
@@ -82,6 +87,20 @@ monitor_zombie_health_scaling()
 
         level.zombie_level++;
 
+        // 1. Scale Movement Speed
+        if ( level.zombie_move_speed < level.zombie_max_speed )
+        {
+            level.zombie_move_speed += level.zombie_speed_inc;
+            if ( level.zombie_move_speed > level.zombie_max_speed )
+            {
+                level.zombie_move_speed = level.zombie_max_speed;
+            }
+        }
+
+        // Apply updated speed to bots currently alive
+        level thread update_active_zombie_speeds();
+
+        // 2. Scale Health
         if ( level.zombie_base_health < level.zombie_max_health )
         {
             level.zombie_base_health += level.zombie_health_inc;
@@ -1192,14 +1211,31 @@ onPlayerSpawned()
 monitor_zombie_kills()
 {
     self endon( "disconnect" );
-    self endon( "death" ); // Kills thread when player dies, resetting streak logic
+    self endon( "death" ); // Resets streak logic on player death
 
-    self.zombie_streak_kills = 0; // Resets kill counter to 0 on new spawn
+    self.zombie_streak_kills = 0; // Resets kill counter on spawn
 
     for ( ;; )
     {
-        // Wait for player to kill an enemy
+        // Wait for native player kill notify from _globallogic
         self waittill( "killed_enemy" );
+
+        // AWARD SCORE IF INSTA-KILL IS ACTIVE
+        if ( isDefined( level.instakill_active ) && level.instakill_active )
+        {
+            // 1. Direct persistent score increment
+            self.score += 10;
+            self.pers["score"] = self.score;
+
+            // 2. Direct score setter (native engine scoreboard refresh)
+            maps\mp\gametypes\_globallogic::_setPlayerScore( self, self.score );
+
+            // 3. Optional on-screen XP popup feed (+10)
+            if ( isDefined( level.onXPEvent ) )
+            {
+                self thread [[level.onXPEvent]]( "kill" );
+            }
+        }
 
         self.zombie_streak_kills++;
 
@@ -1209,12 +1245,12 @@ monitor_zombie_kills()
             self thread give_max_ammo_reward();
         }
         // 10 Kill Reward - Insta-Kill (30 Seconds)
-        else if ( self.zombie_streak_kills == 10 )
+        else if ( self.zombie_streak_kills == 20 )
         {
             self thread activate_instakill_reward();
         }
         // Reset streak counter after 10 kills
-        else if ( self.zombie_streak_kills > 10 )
+        else if ( self.zombie_streak_kills > 20 )
         {
             self.zombie_streak_kills = 0;
         }
@@ -1244,6 +1280,9 @@ activate_instakill_reward()
 
     // Disable global instakill flag
     level.instakill_active = false;
+
+	self playLocalSound( "full_ammo" );
+
 }
 
 // Threaded on EVERY zombie bot when spawned
@@ -1256,17 +1295,22 @@ monitor_zombie_damage()
     {
         self waittill( "damage", amount, attacker, direction_vec, point, type, modelName, tagName, partName, iDFlags, weapon );
 
-        // If Insta-Kill is active and the damage was dealt by a player
+        // If Insta-Kill is active and damaged by a human player
         if ( isDefined( level.instakill_active ) && level.instakill_active )
         {
             if ( isDefined( attacker ) && isPlayer( attacker ) && attacker != self )
             {
-                // Deliver instant death using the attacker's weapon credit
-                self finishPlayerDamage( attacker, attacker, 99999, 0, type, weapon, point, direction_vec, "none", 0 );
+                // Force health down so any damage is lethal
+                self.health = 1;
 
-                if ( isAlive( self ) )
+                // Apply immediate lethal script damage credited to the player
+                if ( isDefined( type ) && isDefined( weapon ) )
                 {
-                    self suicide();
+                    self finishPlayerDamage( attacker, attacker, 100000, 0, type, weapon, point, direction_vec, "head", 0 );
+                }
+                else
+                {
+                    self finishPlayerDamage( attacker, attacker, 100000, 0, "MOD_RIFLE_BULLET", "ak47_mp", point, direction_vec, "head", 0 );
                 }
 
                 break;
@@ -1507,6 +1551,24 @@ apply_zombie_bot_setup()
         self thread attach_zombie_fire_fx();
     }
 
+	if ( isDefined( level.zombie_move_speed ) )
+    {
+        self setMoveSpeedScale( level.zombie_move_speed );
+    }
+
+}
+
+// Dynamically speeds up zombies currently alive when level increments
+update_active_zombie_speeds()
+{
+    bots = getentarray( "player", "classname" );
+    for ( i = 0; i < bots.size; i++ )
+    {
+        if ( isDefined( bots[i] ) && bots[i] is_bot() && isAlive( bots[i] ) )
+        {
+            bots[i] setMoveSpeedScale( level.zombie_move_speed );
+        }
+    }
 }
 
 // Thread to ignite bots already alive when Round 9 triggers

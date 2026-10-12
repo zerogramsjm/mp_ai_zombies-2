@@ -68,35 +68,6 @@ connected()
 	self thread onUAVUpdate();
 }
 
-assign_zombie_speed_tier()
-{
-    // Roll 1 - 100 for weighted tier selection
-    roll = randomIntRange( 1, 101 );
-
-    // 50% Walkers, 35% Joggers, 15% Sprinters
-    if ( roll <= 50 )
-    {
-        // SLOW WALKER (35% to 45% standard speed)
-        self.zombie_type = "walker";
-        self.zombie_speed = randomFloatRange( .1, 0.3 );
-    }
-    else if ( roll <= 85 )
-    {
-        // JOGGER / SHUFFLER (60% to 75% standard speed)
-        self.zombie_type = "jogger";
-        self.zombie_speed = randomFloatRange( 0.20, 0.4 );
-    }
-    else
-    {
-        // FAST SPRINTER (90% to 110% standard speed)
-        self.zombie_type = "sprinter";
-        self.zombie_speed = randomFloatRange( 0.40, 0.8 );
-    }
-
-    // Apply the speed scale to the engine player entity
-    self setMoveSpeedScale( self.zombie_speed );
-}
-
 /*
 	The thread for when the UAV gets updated.
 */
@@ -110,7 +81,6 @@ onUAVUpdate()
 		self thread doUAVUpdate();
 	}
 
-	self assign_zombie_speed_tier();
 }
 
 /*
